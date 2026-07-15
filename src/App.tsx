@@ -5,7 +5,8 @@ import { usePersistedState } from './lib/storage'
 import { buildMessages, SCENES } from './lib/prompts'
 import { streamChat } from './lib/client'
 import { OutputView } from './components/OutputView'
-import { newConfig, SettingsModal } from './components/SettingsModal'
+import { SettingsModal } from './components/SettingsModal'
+import { newConfig } from './lib/presets'
 import {
   IconGitHub,
   IconMoon,

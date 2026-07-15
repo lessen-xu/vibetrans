@@ -34,14 +34,21 @@ export async function streamChat({
   signal,
   onDelta,
 }: StreamChatOptions): Promise<string> {
+  const endpoint = endpointOf(config.baseUrl)
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${config.apiKey}`,
+  }
+  // Anthropic 的接口要求浏览器直连时显式带上这个头才放行 CORS
+  if (endpoint.includes('api.anthropic.com')) {
+    headers['anthropic-dangerous-direct-browser-access'] = 'true'
+  }
+
   let res: Response
   try {
-    res = await fetch(endpointOf(config.baseUrl), {
+    res = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
+      headers,
       body: JSON.stringify({
         model: config.model,
         messages,

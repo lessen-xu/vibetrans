@@ -1,17 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ModelConfig } from '../types'
-import { IconEye, IconEyeOff, IconPlus, IconTrash, IconX } from './Icons'
-
-export function newConfig(): ModelConfig {
-  return {
-    id: crypto.randomUUID(),
-    name: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-v4-flash',
-    apiKey: '',
-  }
-}
+import { PRESETS, newConfig } from '../lib/presets'
+import { IconEye, IconEyeOff, IconTrash, IconX } from './Icons'
 
 function Field({
   label,
@@ -63,7 +54,15 @@ export function SettingsModal({ open, hint, configs, activeId, onClose, onSave }
 
   useEffect(() => {
     if (open) {
-      setDraft(configs.map((c) => ({ ...c })))
+      // 旧数据没有 presetId：按 Base URL 匹配回服务商，匹配不上算自定义
+      const seed = configs.length ? configs : [newConfig()]
+      setDraft(
+        seed.map((c) => ({
+          ...c,
+          presetId:
+            c.presetId ?? PRESETS.find((p) => p.baseUrl === c.baseUrl.trim())?.id ?? 'custom',
+        })),
+      )
       setCurrent(activeId)
       setShowKey(false)
     }
@@ -81,22 +80,37 @@ export function SettingsModal({ open, hint, configs, activeId, onClose, onSave }
   if (!open) return null
 
   const cfg = draft.find((c) => c.id === current) ?? draft[0]
+  if (!cfg) return null
 
   const patch = (partial: Partial<ModelConfig>) => {
     setDraft((prev) => prev.map((c) => (c.id === cfg.id ? { ...c, ...partial } : c)))
   }
 
-  const addConfig = () => {
-    const c = newConfig()
-    c.name = ''
-    setDraft((prev) => [...prev, c])
-    setCurrent(c.id)
+  // 切换服务商：已有该服务商的配置（含填过的 Key）就切过去，否则按模板新建
+  const selectPreset = (pid: string) => {
+    const existing = draft.find((c) => (c.presetId ?? 'custom') === pid)
+    if (existing) {
+      setCurrent(existing.id)
+      setShowKey(false)
+      return
+    }
+    const p = PRESETS.find((x) => x.id === pid)
+    const next: ModelConfig = p
+      ? { id: crypto.randomUUID(), presetId: p.id, name: p.name, baseUrl: p.baseUrl, model: p.model, apiKey: '' }
+      : { id: crypto.randomUUID(), presetId: 'custom', name: '', baseUrl: '', model: '', apiKey: '' }
+    setDraft((prev) => [...prev, next])
+    setCurrent(next.id)
     setShowKey(false)
   }
 
   const removeConfig = () => {
-    if (draft.length <= 1) return
     const rest = draft.filter((c) => c.id !== cfg.id)
+    if (!rest.length) {
+      const fresh = newConfig()
+      setDraft([fresh])
+      setCurrent(fresh.id)
+      return
+    }
     setDraft(rest)
     setCurrent(rest[0].id)
   }
@@ -138,36 +152,24 @@ export function SettingsModal({ open, hint, configs, activeId, onClose, onSave }
           </div>
         )}
 
-        <div className="mt-4 flex flex-wrap items-center gap-1.5">
-          {draft.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => {
-                setCurrent(c.id)
-                setShowKey(false)
-              }}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                c.id === cfg.id
-                  ? 'bg-indigo-500/15 text-indigo-600 ring-1 ring-indigo-500/40 dark:text-indigo-300'
-                  : 'text-zinc-500 hover:bg-zinc-500/10 dark:text-zinc-400'
-              }`}
-            >
-              {c.name || c.model || '未命名'}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={addConfig}
-            title="新增配置"
-            className="rounded-full p-1 text-zinc-400 transition-colors hover:bg-zinc-500/10 hover:text-zinc-600 dark:hover:text-zinc-200"
-          >
-            <IconPlus size={14} />
-          </button>
-        </div>
-
         <div className="mt-4 space-y-3">
-          <Field label="名称" value={cfg.name} onChange={(v) => patch({ name: v })} placeholder="随便起，方便切换" />
+          <label className="block">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">服务商</span>
+            <select
+              value={cfg.presetId ?? 'custom'}
+              onChange={(e) => selectPreset(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white/70 px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15 dark:border-white/10 dark:bg-white/5 dark:focus:border-indigo-400/60"
+            >
+              {PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+              <option value="custom">其他（自定义）</option>
+            </select>
+          </label>
+
+          <Field label="名称" value={cfg.name} onChange={(v) => patch({ name: v })} placeholder="随便起，方便识别" />
           <Field
             label="Base URL"
             value={cfg.baseUrl}
@@ -199,19 +201,18 @@ export function SettingsModal({ open, hint, configs, activeId, onClose, onSave }
         </div>
 
         <p className="mt-4 text-[12px] leading-relaxed text-zinc-400 dark:text-zinc-500">
-          Key 只保存在本机浏览器（localStorage），请求直接从浏览器发往上面填写的地址，不经过任何中间服务器。支持所有
-          OpenAI 兼容接口。
+          每个服务商的配置和 Key 分开保存，切换不会丢。Key
+          只存在本机浏览器（localStorage），请求直接从浏览器发往上面填写的地址，不经过任何中间服务器。
         </p>
 
         <div className="mt-5 flex items-center justify-between">
           <button
             type="button"
             onClick={removeConfig}
-            disabled={draft.length <= 1}
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-zinc-400 transition-colors hover:text-red-500 disabled:pointer-events-none disabled:opacity-30"
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-zinc-400 transition-colors hover:text-red-500"
           >
             <IconTrash size={13} />
-            删除
+            删除此配置
           </button>
           <button
             type="button"
