@@ -8,7 +8,7 @@ export function newConfig(): ModelConfig {
     id: crypto.randomUUID(),
     name: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     apiKey: '',
   }
 }
@@ -178,7 +178,7 @@ export function SettingsModal({ open, hint, configs, activeId, onClose, onSave }
             label="模型"
             value={cfg.model}
             onChange={(v) => patch({ model: v })}
-            placeholder="deepseek-chat"
+            placeholder="deepseek-v4-flash"
           />
           <Field
             label="API Key"
