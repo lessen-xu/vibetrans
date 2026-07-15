@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import type { Direction, ModelConfig } from './types'
 import { usePersistedState } from './lib/storage'
-import { buildMessages, RELATIONSHIPS, SCENES } from './lib/prompts'
+import { buildMessages, SCENES } from './lib/prompts'
 import { streamChat } from './lib/client'
 import { OutputView } from './components/OutputView'
 import { newConfig, SettingsModal } from './components/SettingsModal'
@@ -79,8 +79,7 @@ function Pill({
 export default function App() {
   const [direction, setDirection] = usePersistedState<Direction>('vibetrans:direction', 'toEn')
   const [sceneId, setSceneId] = usePersistedState('vibetrans:scene', 'daily')
-  const [relChoice, setRelChoice] = usePersistedState('vibetrans:rel', '')
-  const [relCustom, setRelCustom] = usePersistedState('vibetrans:relCustom', '')
+  const [rel, setRel] = usePersistedState('vibetrans:relText', '')
   const [configs, setConfigs] = usePersistedState<ModelConfig[]>(
     'vibetrans:configs',
     INITIAL_CONFIGS,
@@ -101,7 +100,7 @@ export default function App() {
 
   const activeCfg = configs.find((c) => c.id === activeId) ?? configs[0]
   const configured = Boolean(activeCfg && activeCfg.apiKey && activeCfg.baseUrl && activeCfg.model)
-  const relationship = relChoice === '__custom' ? relCustom.trim() : relChoice
+  const relationship = rel.trim()
 
   useEffect(() => {
     const ta = taRef.current
@@ -248,25 +247,12 @@ export default function App() {
             </Row>
             {direction === 'toEn' && (
               <Row label="对象">
-                <Pill active={relChoice === ''} onClick={() => setRelChoice('')}>
-                  不限
-                </Pill>
-                {RELATIONSHIPS.map((r) => (
-                  <Pill key={r} active={relChoice === r} onClick={() => setRelChoice(r)}>
-                    {r}
-                  </Pill>
-                ))}
-                <Pill active={relChoice === '__custom'} onClick={() => setRelChoice('__custom')}>
-                  自定义
-                </Pill>
-                {relChoice === '__custom' && (
-                  <input
-                    value={relCustom}
-                    onChange={(e) => setRelCustom(e.target.value)}
-                    placeholder="室友、导师、客服…"
-                    className="w-32 border-b border-zinc-300 bg-transparent px-1 py-0.5 text-[13px] outline-none placeholder:text-zinc-300 focus:border-indigo-400 dark:border-white/20 dark:placeholder:text-zinc-600"
-                  />
-                )}
+                <input
+                  value={rel}
+                  onChange={(e) => setRel(e.target.value)}
+                  placeholder="不填也行：父母、好朋友、导师、亲密对象…"
+                  className="w-full max-w-72 border-b border-zinc-200 bg-transparent px-1 py-0.5 text-[13px] transition-colors outline-none placeholder:text-zinc-400/70 focus:border-indigo-400 dark:border-white/10 dark:placeholder:text-zinc-600"
+                />
               </Row>
             )}
           </div>

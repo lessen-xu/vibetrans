@@ -40,8 +40,6 @@ export const SCENES: Scene[] = [
   },
 ]
 
-export const RELATIONSHIPS = ['陌生人', '父母', '普通朋友', '网友', '好朋友', '亲密对象']
-
 export function buildMessages(
   direction: Direction,
   sceneId: string,
