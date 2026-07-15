@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import type { Direction, ModelConfig } from './types'
+import type { ChatMessage, Direction, ModelConfig } from './types'
 import { usePersistedState } from './lib/storage'
 import { buildMessages, SCENES } from './lib/prompts'
 import { streamChat } from './lib/client'
@@ -13,6 +13,7 @@ import {
   IconSliders,
   IconStop,
   IconSun,
+  IconWand,
 } from './components/Icons'
 
 const DIRECTIONS: { id: Direction; title: string; sub: string }[] = [
@@ -80,6 +81,7 @@ export default function App() {
   const [direction, setDirection] = usePersistedState<Direction>('vibetrans:direction', 'toEn')
   const [sceneId, setSceneId] = usePersistedState('vibetrans:scene', 'daily')
   const [rel, setRel] = usePersistedState('vibetrans:relText', '')
+  const [relHistory, setRelHistory] = usePersistedState<string[]>('vibetrans:relHistory', [])
   const [configs, setConfigs] = usePersistedState<ModelConfig[]>(
     'vibetrans:configs',
     INITIAL_CONFIGS,
@@ -90,13 +92,17 @@ export default function App() {
     document.documentElement.classList.contains('dark') ? 'dark' : 'light',
   )
   const [input, setInput] = useState('')
+  const [extra, setExtra] = useState('')
   const [output, setOutput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState('')
+  const [refineText, setRefineText] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsHint, setSettingsHint] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  // 上一次完成的请求（含回复），供「优化」作为多轮上下文
+  const lastRef = useRef<{ messages: ChatMessage[]; reply: string } | null>(null)
 
   const activeCfg = configs.find((c) => c.id === activeId) ?? configs[0]
   const configured = Boolean(activeCfg && activeCfg.apiKey && activeCfg.baseUrl && activeCfg.model)
@@ -128,15 +134,11 @@ export default function App() {
     setDirection(d)
     setOutput('')
     setError('')
+    setRefineText('')
+    lastRef.current = null
   }
 
-  const translate = () => {
-    if (streaming) {
-      abortRef.current?.abort()
-      return
-    }
-    const text = input.trim()
-    if (!text) return
+  const runStream = (messages: ChatMessage[]) => {
     if (!configured || !activeCfg) {
       setSettingsHint('先填一个 API Key 就能开始用了')
       setSettingsOpen(true)
@@ -147,18 +149,55 @@ export default function App() {
     setStreaming(true)
     setError('')
     setOutput('')
+    let acc = ''
     streamChat({
       config: activeCfg,
-      messages: buildMessages(direction, sceneId, direction === 'toEn' ? relationship : '', text),
-      temperature: direction === 'toEn' ? 0.8 : 0.4,
+      messages,
+      temperature: direction === 'toEn' ? 0.7 : 0.4,
       signal: ac.signal,
-      onDelta: setOutput,
+      onDelta: (full) => {
+        acc = full
+        setOutput(full)
+      },
     })
+      .then((full) => {
+        lastRef.current = { messages, reply: full }
+        if (direction === 'toEn' && relationship) {
+          setRelHistory((prev) => [relationship, ...prev.filter((x) => x !== relationship)].slice(0, 5))
+        }
+      })
       .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === 'AbortError') return
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          if (acc) lastRef.current = { messages, reply: acc }
+          return
+        }
         setError(err instanceof Error ? err.message : String(err))
       })
       .finally(() => setStreaming(false))
+  }
+
+  const translate = () => {
+    if (streaming) {
+      abortRef.current?.abort()
+      return
+    }
+    const text = input.trim()
+    if (!text) return
+    runStream(
+      buildMessages(direction, sceneId, direction === 'toEn' ? relationship : '', extra.trim(), text),
+    )
+  }
+
+  const refine = () => {
+    const req = refineText.trim()
+    const base = lastRef.current
+    if (!req || !base || streaming) return
+    setRefineText('')
+    runStream([
+      ...base.messages,
+      { role: 'assistant', content: base.reply },
+      { role: 'user', content: `按这个要求调整刚才的输出：${req}。仍然遵守原来的输出格式规则。` },
+    ])
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -250,11 +289,33 @@ export default function App() {
                 <input
                   value={rel}
                   onChange={(e) => setRel(e.target.value)}
-                  placeholder="不填也行：父母、好朋友、导师、亲密对象…"
-                  className="w-full max-w-72 border-b border-zinc-200 bg-transparent px-1 py-0.5 text-[13px] transition-colors outline-none placeholder:text-zinc-400/70 focus:border-indigo-400 dark:border-white/10 dark:placeholder:text-zinc-600"
+                  placeholder="可不填：好朋友、导师…"
+                  className="w-44 border-b border-zinc-200 bg-transparent px-1 py-0.5 text-[13px] transition-colors outline-none placeholder:text-zinc-400/70 focus:border-indigo-400 sm:w-52 dark:border-white/10 dark:placeholder:text-zinc-600"
                 />
+                {relHistory
+                  .filter((h) => h && h !== rel)
+                  .slice(0, 3)
+                  .map((h) => (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => setRel(h)}
+                      title="用上次填过的"
+                      className="rounded-full px-2 py-0.5 text-[12px] text-zinc-400/80 transition-colors hover:bg-zinc-500/10 hover:text-zinc-600 dark:text-zinc-600 dark:hover:text-zinc-300"
+                    >
+                      {h}
+                    </button>
+                  ))}
               </Row>
             )}
+            <Row label="补充">
+              <input
+                value={extra}
+                onChange={(e) => setExtra(e.target.value)}
+                placeholder="可不填：背景或要求，比如「对方刚帮了我个忙」「别太热情」"
+                className="min-w-0 flex-1 border-b border-zinc-200 bg-transparent px-1 py-0.5 text-[13px] transition-colors outline-none placeholder:text-zinc-400/70 focus:border-indigo-400 dark:border-white/10 dark:placeholder:text-zinc-600"
+              />
+            </Row>
           </div>
 
           <div className="mt-4 flex items-center justify-between">
@@ -291,6 +352,31 @@ export default function App() {
         {!error && (output || streaming) && (
           <div className="mt-5 space-y-2.5">
             <OutputView direction={direction} raw={output} streaming={streaming} />
+            {output && !streaming && (
+              <div className="glass animate-rise flex items-center gap-2 rounded-2xl py-2 pr-2 pl-4">
+                <IconWand size={15} className="shrink-0 text-zinc-400 dark:text-zinc-500" />
+                <input
+                  value={refineText}
+                  onChange={(e) => setRefineText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      refine()
+                    }
+                  }}
+                  placeholder="让 AI 再改改：更简短 / 更礼貌 / 别用缩写…"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400/70 dark:placeholder:text-zinc-500"
+                />
+                <button
+                  type="button"
+                  onClick={refine}
+                  disabled={!refineText.trim()}
+                  className="btn-primary rounded-xl px-4 py-1.5 text-xs font-medium text-white shadow-md shadow-indigo-500/20 transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+                >
+                  优化
+                </button>
+              </div>
+            )}
           </div>
         )}
       </main>

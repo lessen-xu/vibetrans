@@ -44,21 +44,24 @@ export function buildMessages(
   direction: Direction,
   sceneId: string,
   relationship: string,
+  extra: string,
   input: string,
 ): ChatMessage[] {
   const scene = SCENES.find((s) => s.id === sceneId) ?? SCENES[0]
+  const ctx = extra ? `\n补充信息：${extra}` : ''
 
   if (direction === 'toEn') {
     const rel = relationship
       ? `\n对话对象：${relationship}。根据这层关系调整亲密度、语气和用词。`
       : ''
     const system = `你是在英语环境生活多年的双语者，帮非母语者把想表达的意思用母语者真正会说的英语讲出来。
-场景：${scene.desc}。${scene.hint}。${rel}
+场景：${scene.desc}。${scene.hint}。${rel}${ctx}
 
 规则：
 - 给出 2-3 种地道说法，按推荐程度排序，每行一种
-- 必须是自然口语，不要逐字直译
-- 若某种说法的语气或使用场合需要提醒，在该行末尾用「 — 」加一句简短中文注释；没必要就不加
+- 忠实原文的意思和信息量：不遗漏要点，也不要添加或引申原文没有的内容；在此前提下用母语者的习惯表达
+- 自然口语，不要逐字直译；不要用破折号（— 或 –），母语者聊天几乎不这么写，改用逗号或拆成短句
+- 若某种说法的语气或用法需要提醒，在该行末尾加「 // 简短中文注释」，注释必须跟说法在同一行；没必要就不加
 - 除此之外不输出任何内容：不要编号、引号、标题或解释`
     return [
       { role: 'system', content: system },
@@ -66,7 +69,7 @@ export function buildMessages(
     ]
   }
 
-  const system = `你是精通英语口语、网络文化和俚语的翻译，帮中文用户看懂英语母语者的表达。场景参考：${scene.desc}。
+  const system = `你是精通英语口语、网络文化和俚语的翻译，帮中文用户看懂英语母语者的表达。场景参考：${scene.desc}。${ctx}
 
 规则：
 - 第一行：用自然的中文说出这句话的意思，尽量还原语气
@@ -83,16 +86,30 @@ export interface Candidate {
   note?: string
 }
 
-/** 把流式返回的多行文本解析成候选说法（每行一条，可带「 — 注释」）。 */
+const CJK = /[一-鿿]/
+
+/** 把流式返回的多行文本解析成候选说法（每行一条，行尾「 // 注释」，兼容旧的「 — 注释」）。 */
 export function parseCandidates(raw: string): Candidate[] {
-  return raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const cleaned = line.replace(/^(?:[-*•]|\d+[.、)])\s*/, '')
-      const m = cleaned.match(/^(.+?)\s+[—–]+\s+(.+)$/u)
-      if (m) return { text: m[1].trim(), note: m[2].trim() }
-      return { text: cleaned }
-    })
+  const out: Candidate[] = []
+  for (const rawLine of raw.split('\n')) {
+    const line = rawLine.trim()
+    if (!line) continue
+    // 以破折号开头且含中文的行：模型把注释换行写了，归到上一条
+    if (out.length && /^[—–]/.test(line) && CJK.test(line)) {
+      const note = line.replace(/^[—–]+\s*/, '')
+      const prev = out[out.length - 1]
+      prev.note = prev.note ? `${prev.note}；${note}` : note
+      continue
+    }
+    const cleaned = line.replace(/^(?:[-*•]|\d+[.、)])\s*/, '')
+    let m = cleaned.match(/^(.+?)\s+\/\/\s*(.+)$/)
+    if (!m) {
+      // 兼容行尾破折号注释，但只有后半段是中文才切，避免误切英文句子里的 em dash
+      const dash = cleaned.match(/^(.+?)\s+[—–]+\s+(.+)$/)
+      if (dash && CJK.test(dash[2])) m = dash
+    }
+    if (m) out.push({ text: m[1].trim(), note: m[2].trim() })
+    else out.push({ text: cleaned })
+  }
+  return out
 }
