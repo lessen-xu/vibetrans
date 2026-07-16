@@ -62,6 +62,12 @@ function RichText({ text, streaming }: { text: string; streaming: boolean }) {
   )
 }
 
+const TIERS = [
+  { label: '忠实原意', color: 'text-emerald-600 dark:text-emerald-400' },
+  { label: '平衡', color: 'text-indigo-500 dark:text-indigo-300' },
+  { label: '最地道', color: 'text-orange-500 dark:text-orange-300' },
+]
+
 interface Props {
   direction: Direction
   raw: string
@@ -83,16 +89,15 @@ export function OutputView({ direction, raw, streaming }: Props) {
     <>
       {candidates.map((c, i) => {
         const isLast = i === candidates.length - 1
+        const tier = TIERS[i]
         return (
           <div
             key={i}
-            className={`glass animate-rise group relative rounded-2xl p-4 pr-11 sm:px-5 ${
-              i === 0 ? 'ring-1 ring-indigo-500/25' : ''
-            }`}
+            className="glass animate-rise group relative rounded-2xl p-4 pr-11 sm:px-5"
           >
-            {i === 0 && (
-              <div className="mb-1 text-[11px] font-semibold tracking-wide text-indigo-500 dark:text-indigo-300">
-                首选
+            {tier && (
+              <div className={`mb-1 text-[11px] font-semibold tracking-wide ${tier.color}`}>
+                {tier.label}
               </div>
             )}
             <p
